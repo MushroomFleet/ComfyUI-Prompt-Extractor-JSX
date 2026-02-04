@@ -1,10 +1,12 @@
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![React](https://img.shields.io/badge/React-16.8+-61DAFB.svg?logo=react)
+![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-green.svg)
+
 # ComfyUI Prompt Extractor JSX
 
 A lightweight React component for extracting text prompts from ComfyUI-generated PNG images by parsing embedded metadata non-destructively.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![React](https://img.shields.io/badge/React-16.8+-61DAFB.svg?logo=react)
-![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-green.svg)
+Live Demo: https://scuffedepoch.com/prompt-extractor/
 
 ## ✨ Features
 
