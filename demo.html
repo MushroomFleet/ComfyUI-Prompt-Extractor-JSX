@@ -289,6 +289,57 @@
       font-size: 0.8rem;
       margin-top: 8px;
     }
+    
+    .prompt-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .string-counter {
+      color: #00d9ff;
+      font-size: 0.85rem;
+      font-weight: 500;
+      background: rgba(0, 217, 255, 0.1);
+      padding: 4px 10px;
+      border-radius: 12px;
+    }
+    
+    .prompt-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    
+    .nav-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn-nav {
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      background: rgba(0, 217, 255, 0.15);
+      color: #00d9ff;
+      border: 1px solid rgba(0, 217, 255, 0.3);
+    }
+    
+    .btn-nav:hover {
+      background: rgba(0, 217, 255, 0.25);
+      border-color: #00d9ff;
+    }
+    
+    .btn-next {
+      background: linear-gradient(135deg, rgba(0, 217, 255, 0.2), rgba(0, 153, 204, 0.2));
+    }
+    
+    .btn-next:hover {
+      background: linear-gradient(135deg, rgba(0, 217, 255, 0.3), rgba(0, 153, 204, 0.3));
+    }
 
     .hidden {
       display: none;
@@ -354,6 +405,8 @@
       const [fileName, setFileName] = React.useState(null);
       const [imagePreview, setImagePreview] = React.useState(null);
       const [metadata, setMetadata] = React.useState(null);
+      const [sortedStrings, setSortedStrings] = React.useState([]);
+      const [currentIndex, setCurrentIndex] = React.useState(0);
       const fileInputRef = React.useRef(null);
 
       // Parse PNG chunks from ArrayBuffer
@@ -442,12 +495,12 @@
         return strings;
       };
 
-      // Find longest string (the prompt)
-      const findLongestString = (textChunks, ignoreSystemPrompt = true) => {
-        let longestString = '';
+      // Find all unique strings sorted by length (longest first)
+      const findAllSortedStrings = (textChunks, ignoreSystemPrompt = true) => {
         const allMetadata = {};
         const systemPromptPrefixes = []; // Store first 20 chars of system_prompt values
         const systemPromptFullStrings = new Set(); // Store full system prompt strings for exact matching
+        const allStringsSet = new Set(); // Use Set to deduplicate
         
         // First pass: collect ALL system_prompt content from all sources
         if (ignoreSystemPrompt) {
@@ -550,7 +603,7 @@
           return results;
         };
         
-        // Second pass: find longest string
+        // Second pass: collect all strings
         for (const [key, value] of Object.entries(textChunks)) {
           // Skip system_prompt key entirely if ignoring
           if (ignoreSystemPrompt && 
@@ -567,34 +620,36 @@
             const parsed = JSON.parse(value);
             allMetadata[key] = parsed;
             
-            // Find widgets_values joined strings first (these are segmented prompts)
+            // Find widgets_values joined strings
             const widgetsPrompts = findWidgetsValues(parsed);
             for (const str of widgetsPrompts) {
-              if (str.length > longestString.length && !matchesSystemPrompt(str)) {
-                longestString = str;
+              if (!matchesSystemPrompt(str) && str.trim().length > 0) {
+                allStringsSet.add(str);
               }
             }
             
-            // Also check regular strings
+            // Also collect regular strings
             const strings = findAllStrings(parsed);
             for (const str of strings) {
-              // Skip if matches system_prompt
-              if (matchesSystemPrompt(str)) continue;
-              
-              if (str.length > longestString.length) {
-                longestString = str;
+              if (!matchesSystemPrompt(str) && str.trim().length > 0) {
+                allStringsSet.add(str);
               }
             }
           } catch (e) {
-            // Not JSON, check raw string
-            if (!matchesSystemPrompt(value) && value.length > longestString.length) {
-              longestString = value;
+            // Not JSON, add raw string
+            if (!matchesSystemPrompt(value) && value.trim().length > 0) {
+              allStringsSet.add(value);
             }
             allMetadata[key] = value;
           }
         }
         
-        return { longestString, allMetadata };
+        // Convert to array and sort by length (longest first)
+        const sortedStrings = Array.from(allStringsSet)
+          .filter(s => s.length > 0)
+          .sort((a, b) => b.length - a.length);
+        
+        return { sortedStrings, allMetadata };
       };
 
       // Process uploaded file
@@ -602,6 +657,8 @@
         setIsProcessing(true);
         setExtractedPrompt(null);
         setMetadata(null);
+        setSortedStrings([]);
+        setCurrentIndex(0);
         
         try {
           const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
@@ -629,17 +686,19 @@
             throw new Error('No metadata found in PNG. This image may not have been generated by ComfyUI or the metadata was stripped.');
           }
           
-          const { longestString, allMetadata } = findLongestString(textChunks, ignoreSystemPrompt);
+          const { sortedStrings: strings, allMetadata } = findAllSortedStrings(textChunks, ignoreSystemPrompt);
           
-          if (!longestString) {
+          if (strings.length === 0) {
             throw new Error('No text prompts found in metadata.');
           }
           
-          setExtractedPrompt(longestString);
+          setSortedStrings(strings);
+          setCurrentIndex(0);
+          setExtractedPrompt(strings[0]); // Start with longest
           setMetadata(allMetadata);
           
           if (onPromptExtracted) {
-            onPromptExtracted(longestString, nameWithoutExt, allMetadata);
+            onPromptExtracted(strings[0], nameWithoutExt, allMetadata);
           }
           
         } catch (error) {
@@ -649,6 +708,8 @@
           }
           setExtractedPrompt(null);
           setMetadata(null);
+          setSortedStrings([]);
+          setCurrentIndex(0);
         } finally {
           setIsProcessing(false);
         }
@@ -687,10 +748,32 @@
         fileInputRef.current?.click();
       };
 
+      // Navigate to next longest string
+      const nextString = () => {
+        if (sortedStrings.length === 0) return;
+        const nextIndex = (currentIndex + 1) % sortedStrings.length;
+        setCurrentIndex(nextIndex);
+        setExtractedPrompt(sortedStrings[nextIndex]);
+      };
+
+      // Navigate to previous (longer) string
+      const prevString = () => {
+        if (sortedStrings.length === 0) return;
+        const prevIndex = currentIndex === 0 ? sortedStrings.length - 1 : currentIndex - 1;
+        setCurrentIndex(prevIndex);
+        setExtractedPrompt(sortedStrings[prevIndex]);
+      };
+
+      // Check if there are more strings to show
+      const hasMoreStrings = sortedStrings.length > 1;
+      const totalStrings = sortedStrings.length;
+
       const reset = () => {
         setExtractedPrompt(null);
         setFileName(null);
         setMetadata(null);
+        setSortedStrings([]);
+        setCurrentIndex(0);
         if (imagePreview) URL.revokeObjectURL(imagePreview);
         setImagePreview(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -702,6 +785,10 @@
         fileName,
         imagePreview,
         metadata,
+        sortedStrings,
+        currentIndex,
+        totalStrings,
+        hasMoreStrings,
         fileInputRef,
         processFile,
         handleFileChange,
@@ -709,6 +796,8 @@
         handleDragOver,
         savePrompt,
         triggerFileInput,
+        nextString,
+        prevString,
         reset,
       };
     };
@@ -850,12 +939,39 @@
                 )}
                 
                 <div className="prompt-container">
-                  <div className="prompt-label">Extracted Prompt</div>
+                  <div className="prompt-label-row">
+                    <span className="prompt-label">Extracted Prompt</span>
+                    {extractor.hasMoreStrings && (
+                      <span className="string-counter">
+                        String {extractor.currentIndex + 1} of {extractor.totalStrings}
+                      </span>
+                    )}
+                  </div>
                   <div className="prompt-box">
                     {extractor.extractedPrompt}
                   </div>
-                  <div className="char-count">
-                    {extractor.extractedPrompt.length} characters
+                  <div className="prompt-footer">
+                    <div className="char-count">
+                      {extractor.extractedPrompt.length} characters
+                    </div>
+                    {extractor.hasMoreStrings && (
+                      <div className="nav-buttons">
+                        <button 
+                          className="btn btn-nav"
+                          onClick={extractor.prevString}
+                          title="Previous (longer) string"
+                        >
+                          ◀ Prev
+                        </button>
+                        <button 
+                          className="btn btn-nav btn-next"
+                          onClick={extractor.nextString}
+                          title="Next (shorter) string"
+                        >
+                          Next ▶
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
