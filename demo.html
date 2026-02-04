@@ -293,6 +293,51 @@
     .hidden {
       display: none;
     }
+    
+    .options-bar {
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    .checkbox-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #00d9ff;
+      cursor: pointer;
+    }
+    
+    .checkbox-text {
+      color: #e0e0e0;
+      font-size: 0.95rem;
+    }
+    
+    .checkbox-hint {
+      color: #666;
+      font-size: 0.8rem;
+      margin-left: auto;
+    }
+    
+    @media (max-width: 600px) {
+      .checkbox-label {
+        flex-wrap: wrap;
+      }
+      .checkbox-hint {
+        width: 100%;
+        margin-left: 28px;
+        margin-top: 4px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -303,7 +348,7 @@
      * ComfyPrompt Extractor Component (Inline Version)
      * Extracts text prompts from ComfyUI-generated PNG metadata
      */
-    const useComfyPromptExtractor = ({ onPromptExtracted, onError }) => {
+    const useComfyPromptExtractor = ({ onPromptExtracted, onError, ignoreSystemPrompt = true }) => {
       const [isProcessing, setIsProcessing] = React.useState(false);
       const [extractedPrompt, setExtractedPrompt] = React.useState(null);
       const [fileName, setFileName] = React.useState(null);
@@ -398,23 +443,151 @@
       };
 
       // Find longest string (the prompt)
-      const findLongestString = (textChunks) => {
+      const findLongestString = (textChunks, ignoreSystemPrompt = true) => {
         let longestString = '';
         const allMetadata = {};
+        const systemPromptPrefixes = []; // Store first 20 chars of system_prompt values
+        const systemPromptFullStrings = new Set(); // Store full system prompt strings for exact matching
         
+        // First pass: collect ALL system_prompt content from all sources
+        if (ignoreSystemPrompt) {
+          // Helper to recursively find system_prompt values in any object
+          const collectSystemPrompts = (obj, currentKey = '') => {
+            if (typeof obj === 'string') {
+              // If we're inside a key that looks like system_prompt, collect it
+              if (currentKey.toLowerCase().includes('system_prompt') || 
+                  currentKey.toLowerCase().includes('systemprompt')) {
+                if (obj.length >= 20) {
+                  systemPromptPrefixes.push(obj.substring(0, 20));
+                  systemPromptFullStrings.add(obj);
+                }
+              }
+            } else if (Array.isArray(obj)) {
+              obj.forEach(item => collectSystemPrompts(item, currentKey));
+            } else if (obj && typeof obj === 'object') {
+              for (const [key, value] of Object.entries(obj)) {
+                collectSystemPrompts(value, key);
+              }
+            }
+          };
+          
+          // Collect from all text chunks
+          for (const [key, value] of Object.entries(textChunks)) {
+            // Direct system_prompt key
+            if (key.toLowerCase() === 'system_prompt' || 
+                key.toLowerCase() === 'systemprompt') {
+              try {
+                const parsed = JSON.parse(value);
+                const sysStrings = findAllStrings(parsed);
+                for (const str of sysStrings) {
+                  if (str.length >= 20) {
+                    systemPromptPrefixes.push(str.substring(0, 20));
+                    systemPromptFullStrings.add(str);
+                  }
+                }
+              } catch (e) {
+                if (typeof value === 'string' && value.length >= 20) {
+                  systemPromptPrefixes.push(value.substring(0, 20));
+                  systemPromptFullStrings.add(value);
+                }
+              }
+            } else {
+              // Also scan inside other chunks for embedded system_prompt keys
+              try {
+                const parsed = JSON.parse(value);
+                collectSystemPrompts(parsed);
+              } catch (e) {
+                // Not JSON, skip
+              }
+            }
+          }
+        }
+        
+        // Helper to check if a string matches any system_prompt
+        const matchesSystemPrompt = (str) => {
+          if (!ignoreSystemPrompt) return false;
+          
+          // Check exact match first
+          if (systemPromptFullStrings.has(str)) return true;
+          
+          // Check prefix match
+          if (systemPromptPrefixes.length > 0 && str.length >= 20) {
+            const strPrefix = str.substring(0, 20);
+            if (systemPromptPrefixes.some(prefix => strPrefix === prefix)) {
+              return true;
+            }
+          }
+          
+          return false;
+        };
+        
+        // Helper to extract and join widgets_values arrays
+        const findWidgetsValues = (obj, results = []) => {
+          if (Array.isArray(obj)) {
+            for (const item of obj) {
+              findWidgetsValues(item, results);
+            }
+          } else if (obj && typeof obj === 'object') {
+            // Check if this object has widgets_values
+            if (Array.isArray(obj.widgets_values)) {
+              // Filter to only string values and join them
+              const stringValues = obj.widgets_values
+                .filter(v => typeof v === 'string' && v.trim().length > 0 && v.trim() !== ',')
+                .map(v => v.trim());
+              if (stringValues.length > 1) {
+                // Join the values - this is likely a segmented prompt
+                const joined = stringValues.join(' ').replace(/\s+/g, ' ').trim();
+                if (joined.length > 0) {
+                  results.push(joined);
+                }
+              }
+            }
+            // Recurse into object values
+            for (const value of Object.values(obj)) {
+              findWidgetsValues(value, results);
+            }
+          }
+          return results;
+        };
+        
+        // Second pass: find longest string
         for (const [key, value] of Object.entries(textChunks)) {
+          // Skip system_prompt key entirely if ignoring
+          if (ignoreSystemPrompt && 
+              (key.toLowerCase() === 'system_prompt' || key.toLowerCase() === 'systemprompt')) {
+            try {
+              allMetadata[key] = JSON.parse(value);
+            } catch (e) {
+              allMetadata[key] = value;
+            }
+            continue;
+          }
+          
           try {
             const parsed = JSON.parse(value);
             allMetadata[key] = parsed;
             
+            // Find widgets_values joined strings first (these are segmented prompts)
+            const widgetsPrompts = findWidgetsValues(parsed);
+            for (const str of widgetsPrompts) {
+              if (str.length > longestString.length && !matchesSystemPrompt(str)) {
+                longestString = str;
+              }
+            }
+            
+            // Also check regular strings
             const strings = findAllStrings(parsed);
             for (const str of strings) {
+              // Skip if matches system_prompt
+              if (matchesSystemPrompt(str)) continue;
+              
               if (str.length > longestString.length) {
                 longestString = str;
               }
             }
           } catch (e) {
-            if (value.length > longestString.length) {
+            // Not JSON, check raw string
+            if (!matchesSystemPrompt(value) && value.length > longestString.length) {
               longestString = value;
             }
             allMetadata[key] = value;
@@ -456,7 +629,7 @@
             throw new Error('No metadata found in PNG. This image may not have been generated by ComfyUI or the metadata was stripped.');
           }
           
-          const { longestString, allMetadata } = findLongestString(textChunks);
+          const { longestString, allMetadata } = findLongestString(textChunks, ignoreSystemPrompt);
           
           if (!longestString) {
             throw new Error('No text prompts found in metadata.');
@@ -545,6 +718,7 @@
       const [error, setError] = React.useState(null);
       const [isDragging, setIsDragging] = React.useState(false);
       const [showMetadata, setShowMetadata] = React.useState(false);
+      const [ignoreSystemPrompt, setIgnoreSystemPrompt] = React.useState(true);
 
       const extractor = useComfyPromptExtractor({
         onPromptExtracted: (prompt, filename, metadata) => {
@@ -555,7 +729,8 @@
         },
         onError: (errorMsg) => {
           setError(errorMsg);
-        }
+        },
+        ignoreSystemPrompt: ignoreSystemPrompt
       });
 
       const handleDragEnter = (e) => {
@@ -608,6 +783,18 @@
             <div className="drop-hint">
               Only PNG files with embedded ComfyUI metadata are supported
             </div>
+          </div>
+
+          <div className="options-bar">
+            <label className="checkbox-label" onClick={(e) => e.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={ignoreSystemPrompt}
+                onChange={(e) => setIgnoreSystemPrompt(e.target.checked)}
+              />
+              <span className="checkbox-text">Ignore system_prompt metadata</span>
+              <span className="checkbox-hint">Skip system_prompt key when finding longest string</span>
+            </label>
           </div>
 
           {extractor.isProcessing && (
