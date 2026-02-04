@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ComfyUI Prompt Extractor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      color: #e0e0e0;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      text-align: center;
+      color: #00d9ff;
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+      text-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
+    }
+    
+    .subtitle {
+      text-align: center;
+      color: #888;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
+    }
+    
+    .drop-zone {
+      border: 2px dashed #00d9ff;
+      border-radius: 16px;
+      padding: 40px;
+      text-align: center;
+      transition: all 0.3s ease;
+      background: rgba(0, 217, 255, 0.05);
+      cursor: pointer;
+    }
+    
+    .drop-zone:hover {
+      background: rgba(0, 217, 255, 0.1);
+      border-color: #00ffff;
+      transform: translateY(-2px);
+    }
+    
+    .drop-zone.dragging {
+      background: rgba(0, 217, 255, 0.15);
+      border-color: #00ffff;
+      box-shadow: 0 0 30px rgba(0, 217, 255, 0.2);
+    }
+    
+    .drop-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    
+    .drop-text {
+      color: #ccc;
+      margin-bottom: 1rem;
+    }
+    
+    .drop-hint {
+      color: #666;
+      font-size: 0.8rem;
+    }
+    
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-weight: 500;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #00d9ff, #0099cc);
+      color: #000;
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 217, 255, 0.4);
+    }
+    
+    .btn-success {
+      background: linear-gradient(135deg, #00ff88, #00cc6a);
+      color: #000;
+    }
+    
+    .btn-success:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 255, 136, 0.4);
+    }
+    
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: #ccc;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+    
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .result-card {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 24px;
+      margin-top: 24px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    
+    .result-title {
+      color: #00ff88;
+      font-size: 1.1rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    
+    .preview-container {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    
+    .image-preview {
+      flex: 0 0 200px;
+    }
+    
+    .image-preview img {
+      width: 200px;
+      height: 200px;
+      object-fit: cover;
+      border-radius: 12px;
+      border: 2px solid rgba(0, 217, 255, 0.3);
+    }
+    
+    .prompt-container {
+      flex: 1;
+      min-width: 300px;
+    }
+    
+    .prompt-box {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 12px;
+      padding: 16px;
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 0.9rem;
+      line-height: 1.6;
+      color: #e0e0e0;
+      max-height: 300px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid rgba(0, 217, 255, 0.2);
+    }
+    
+    .prompt-label {
+      color: #888;
+      font-size: 0.8rem;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .filename {
+      color: #00d9ff;
+      font-family: monospace;
+      background: rgba(0, 217, 255, 0.1);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+    
+    .error-box {
+      background: rgba(255, 77, 77, 0.1);
+      border: 1px solid rgba(255, 77, 77, 0.3);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 24px;
+      color: #ff6b6b;
+    }
+    
+    .error-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 40px;
+      color: #00d9ff;
+    }
+    
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid rgba(0, 217, 255, 0.2);
+      border-top-color: #00d9ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .metadata-toggle {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .metadata-btn {
+      background: none;
+      border: none;
+      color: #00d9ff;
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    .metadata-btn:hover {
+      text-decoration: underline;
+    }
+    
+    .metadata-content {
+      margin-top: 12px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      max-height: 200px;
+      overflow: auto;
+      color: #888;
+    }
+    
+    .char-count {
+      color: #666;
+      font-size: 0.8rem;
+      margin-top: 8px;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    /**
+     * ComfyPrompt Extractor Component (Inline Version)
+     * Extracts text prompts from ComfyUI-generated PNG metadata
+     */
+    const useComfyPromptExtractor = ({ onPromptExtracted, onError }) => {
+      const [isProcessing, setIsProcessing] = React.useState(false);
+      const [extractedPrompt, setExtractedPrompt] = React.useState(null);
+      const [fileName, setFileName] = React.useState(null);
+      const [imagePreview, setImagePreview] = React.useState(null);
+      const [metadata, setMetadata] = React.useState(null);
+      const fileInputRef = React.useRef(null);
+
+      // Parse PNG chunks from ArrayBuffer
+      const parsePngChunks = (buffer) => {
+        const view = new DataView(buffer);
+        const chunks = [];
+        
+        // Verify PNG signature
+        const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+        for (let i = 0; i < 8; i++) {
+          if (view.getUint8(i) !== signature[i]) {
+            throw new Error('Not a valid PNG file');
+          }
+        }
+        
+        let pos = 8;
+        
+        while (pos < buffer.byteLength) {
+          const length = view.getUint32(pos, false);
+          const typeBytes = new Uint8Array(buffer, pos + 4, 4);
+          const type = String.fromCharCode(...typeBytes);
+          const data = new Uint8Array(buffer, pos + 8, length);
+          
+          chunks.push({ type, data, length });
+          pos += 12 + length;
+          
+          if (type === 'IEND') break;
+        }
+        
+        return chunks;
+      };
+
+      // Extract text from tEXt and iTXt chunks
+      const extractTextChunks = (chunks) => {
+        const textData = {};
+        
+        for (const chunk of chunks) {
+          if (chunk.type === 'tEXt') {
+            const nullPos = chunk.data.indexOf(0);
+            if (nullPos !== -1) {
+              const keyword = new TextDecoder('latin1').decode(chunk.data.slice(0, nullPos));
+              const text = new TextDecoder('utf-8').decode(chunk.data.slice(nullPos + 1));
+              textData[keyword] = text;
+            }
+          } else if (chunk.type === 'iTXt') {
+            const data = chunk.data;
+            let pos = 0;
+            
+            const nullPos = data.indexOf(0, pos);
+            if (nullPos === -1) continue;
+            const keyword = new TextDecoder('latin1').decode(data.slice(pos, nullPos));
+            pos = nullPos + 1;
+            
+            const compressionFlag = data[pos];
+            pos += 2;
+            
+            const langEnd = data.indexOf(0, pos);
+            if (langEnd === -1) continue;
+            pos = langEnd + 1;
+            
+            const transEnd = data.indexOf(0, pos);
+            if (transEnd === -1) continue;
+            pos = transEnd + 1;
+            
+            const text = new TextDecoder('utf-8').decode(data.slice(pos));
+            textData[keyword] = text;
+          }
+        }
+        
+        return textData;
+      };
+
+      // Recursively find all strings in JSON
+      const findAllStrings = (obj, strings = []) => {
+        if (typeof obj === 'string') {
+          strings.push(obj);
+        } else if (Array.isArray(obj)) {
+          for (const item of obj) {
+            findAllStrings(item, strings);
+          }
+        } else if (obj && typeof obj === 'object') {
+          for (const value of Object.values(obj)) {
+            findAllStrings(value, strings);
+          }
+        }
+        return strings;
+      };
+
+      // Find longest string (the prompt)
+      const findLongestString = (textChunks) => {
+        let longestString = '';
+        const allMetadata = {};
+        
+        for (const [key, value] of Object.entries(textChunks)) {
+          try {
+            const parsed = JSON.parse(value);
+            allMetadata[key] = parsed;
+            
+            const strings = findAllStrings(parsed);
+            for (const str of strings) {
+              if (str.length > longestString.length) {
+                longestString = str;
+              }
+            }
+          } catch (e) {
+            if (value.length > longestString.length) {
+              longestString = value;
+            }
+            allMetadata[key] = value;
+          }
+        }
+        
+        return { longestString, allMetadata };
+      };
+
+      // Process uploaded file
+      const processFile = async (file) => {
+        setIsProcessing(true);
+        setExtractedPrompt(null);
+        setMetadata(null);
+        
+        try {
+          const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+          setFileName(nameWithoutExt);
+          
+          const previewUrl = URL.createObjectURL(file);
+          setImagePreview(previewUrl);
+          
+          const buffer = await file.arrayBuffer();
+          
+          const view = new DataView(buffer);
+          const isPng = view.getUint8(0) === 137 && 
+                        view.getUint8(1) === 80 && 
+                        view.getUint8(2) === 78 && 
+                        view.getUint8(3) === 71;
+          
+          if (!isPng) {
+            throw new Error('File is not a PNG. ComfyUI metadata is only embedded in PNG files. This appears to be a JPEG or other format.');
+          }
+          
+          const chunks = parsePngChunks(buffer);
+          const textChunks = extractTextChunks(chunks);
+          
+          if (Object.keys(textChunks).length === 0) {
+            throw new Error('No metadata found in PNG. This image may not have been generated by ComfyUI or the metadata was stripped.');
+          }
+          
+          const { longestString, allMetadata } = findLongestString(textChunks);
+          
+          if (!longestString) {
+            throw new Error('No text prompts found in metadata.');
+          }
+          
+          setExtractedPrompt(longestString);
+          setMetadata(allMetadata);
+          
+          if (onPromptExtracted) {
+            onPromptExtracted(longestString, nameWithoutExt, allMetadata);
+          }
+          
+        } catch (error) {
+          console.error('Error extracting prompt:', error);
+          if (onError) {
+            onError(error.message);
+          }
+          setExtractedPrompt(null);
+          setMetadata(null);
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+
+      const handleFileChange = (event) => {
+        const file = event.target.files?.[0];
+        if (file) processFile(file);
+      };
+
+      const handleDrop = (event) => {
+        event.preventDefault();
+        const file = event.dataTransfer.files?.[0];
+        if (file) processFile(file);
+      };
+
+      const handleDragOver = (event) => {
+        event.preventDefault();
+      };
+
+      const savePrompt = () => {
+        if (!extractedPrompt || !fileName) return;
+        
+        const blob = new Blob([extractedPrompt], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${fileName}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      const triggerFileInput = () => {
+        fileInputRef.current?.click();
+      };
+
+      const reset = () => {
+        setExtractedPrompt(null);
+        setFileName(null);
+        setMetadata(null);
+        if (imagePreview) URL.revokeObjectURL(imagePreview);
+        setImagePreview(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+
+      return {
+        isProcessing,
+        extractedPrompt,
+        fileName,
+        imagePreview,
+        metadata,
+        fileInputRef,
+        processFile,
+        handleFileChange,
+        handleDrop,
+        handleDragOver,
+        savePrompt,
+        triggerFileInput,
+        reset,
+      };
+    };
+
+    // Demo Application
+    const App = () => {
+      const [error, setError] = React.useState(null);
+      const [isDragging, setIsDragging] = React.useState(false);
+      const [showMetadata, setShowMetadata] = React.useState(false);
+
+      const extractor = useComfyPromptExtractor({
+        onPromptExtracted: (prompt, filename, metadata) => {
+          setError(null);
+          console.log('Prompt extracted:', prompt);
+          console.log('Filename:', filename);
+          console.log('Full metadata:', metadata);
+        },
+        onError: (errorMsg) => {
+          setError(errorMsg);
+        }
+      });
+
+      const handleDragEnter = (e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      };
+
+      const handleDragLeave = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+      };
+
+      const handleDrop = (e) => {
+        setIsDragging(false);
+        extractor.handleDrop(e);
+      };
+
+      const copyToClipboard = async () => {
+        if (extractor.extractedPrompt) {
+          await navigator.clipboard.writeText(extractor.extractedPrompt);
+        }
+      };
+
+      return (
+        <div className="container">
+          <h1>🎨 ComfyUI Prompt Extractor</h1>
+          <p className="subtitle">
+            Extract text prompts from ComfyUI-generated PNG images
+          </p>
+          
+          <div 
+            className={`drop-zone ${isDragging ? 'dragging' : ''}`}
+            onClick={extractor.triggerFileInput}
+            onDrop={handleDrop}
+            onDragOver={extractor.handleDragOver}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+          >
+            <input
+              ref={extractor.fileInputRef}
+              type="file"
+              accept="image/png"
+              onChange={extractor.handleFileChange}
+              className="hidden"
+            />
+            <div className="drop-icon">📁</div>
+            <div className="drop-text">
+              Drop a ComfyUI PNG image here, or click to browse
+            </div>
+            <div className="drop-hint">
+              Only PNG files with embedded ComfyUI metadata are supported
+            </div>
+          </div>
+
+          {extractor.isProcessing && (
+            <div className="loading">
+              <div className="spinner"></div>
+              <span>Extracting prompt...</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="error-box">
+              <div className="error-title">
+                ⚠️ Error
+              </div>
+              <div>{error}</div>
+            </div>
+          )}
+
+          {extractor.extractedPrompt && (
+            <div className="result-card">
+              <div className="result-header">
+                <div className="result-title">
+                  ✅ Prompt Extracted
+                  <span className="filename">{extractor.fileName}.png</span>
+                </div>
+                <div className="button-group">
+                  <button 
+                    className="btn btn-primary"
+                    onClick={copyToClipboard}
+                  >
+                    📋 Copy
+                  </button>
+                  <button 
+                    className="btn btn-success"
+                    onClick={extractor.savePrompt}
+                  >
+                    💾 Save as .txt
+                  </button>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={extractor.reset}
+                  >
+                    🔄 Reset
+                  </button>
+                </div>
+              </div>
+              
+              <div className="preview-container">
+                {extractor.imagePreview && (
+                  <div className="image-preview">
+                    <img src={extractor.imagePreview} alt="Preview" />
+                  </div>
+                )}
+                
+                <div className="prompt-container">
+                  <div className="prompt-label">Extracted Prompt</div>
+                  <div className="prompt-box">
+                    {extractor.extractedPrompt}
+                  </div>
+                  <div className="char-count">
+                    {extractor.extractedPrompt.length} characters
+                  </div>
+                </div>
+              </div>
+
+              {extractor.metadata && (
+                <div className="metadata-toggle">
+                  <button 
+                    className="metadata-btn"
+                    onClick={() => setShowMetadata(!showMetadata)}
+                  >
+                    {showMetadata ? '▼' : '▶'} View Raw Metadata
+                  </button>
+                  {showMetadata && (
+                    <div className="metadata-content">
+                      <pre>{JSON.stringify(extractor.metadata, null, 2)}</pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
